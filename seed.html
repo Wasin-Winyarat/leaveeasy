@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seed ข้อมูลตัวอย่าง — LeaveEasy</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🌱 ใส่ข้อมูลตัวอย่างลง Firestore</h1>
+    <p class="subtitle">หน้าเครื่องมือชั่วคราวสำหรับตั้งค่าฐานข้อมูลครั้งแรก — ไม่ใช่หน้าจอของระบบ LeaveEasy</p>
+
+    <div class="card">
+      <p>กดปุ่มด้านล่างเพื่อใส่ข้อมูลตัวอย่างลง Firestore: <code>users</code> 3 · <code>leaveTypes</code> 3 · <code>leaveRequests</code> 5 · <code>approvals</code> (ใต้แต่ละใบลา)</p>
+      <button type="button" class="btn" id="ปุ่มSeed">ใส่ข้อมูลตัวอย่าง</button>
+      <p id="ผลลัพธ์" class="hint"></p>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script type="module" src="js/seed.js"></script>
+</body>
+</html>
