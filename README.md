@@ -1,5 +1,10 @@
 # 🔧 LeaveEasy — จุดเริ่มต้นของใบงาน
 
+🌐 **เว็บออนไลน์:** https://leaveeasy-wasinwinyarat.web.app
+
+> 📸 **มีภาพหลักฐาน (screenshot) ที่ GitHub มองไม่เห็นโดยตรง?** บอก Claude ว่า
+> "เก็บภาพนี้ไว้ในโฟลเดอร์ docs/" ให้ Claude บันทึกไฟล์เข้าโฟลเดอร์นี้แล้ว push ขึ้น GitHub ให้จริง
+
 **ผู้ทำ:** Wasin Winyarat
 
 **ADT-RAISE Non-Degree Batch 2 · Module 2: MVP-Ready** (สัปดาห์ที่ 6–9)
