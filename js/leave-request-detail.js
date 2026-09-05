@@ -1,12 +1,13 @@
 // ─────────────────────────────────────────────────────────────
 // js/leave-request-detail.js — หน้าที่ 3 รายละเอียดใบลา
 // สัปดาห์ที่ 7: อ่านจาก Firestore จริง (โฟลเดอร์ leaveRequests + โฟลเดอร์ย่อย approvals)
-// การอนุมัติ/ไม่อนุมัติ และการส่งความเห็น ยังเปลี่ยนแค่ในหน่วยความจำ
-// (บันทึกการเปลี่ยนสถานะ/ความเห็นลง Firestore จริงเป็นงานถัดไป)
+// ปุ่มอนุมัติ/ไม่อนุมัติ บันทึกลง Firestore จริง แก้เฉพาะช่อง status เท่านั้น
+// ปุ่มลบ ถามยืนยันก่อนเสมอ แล้วลบไฟล์จริงจาก Firestore (ลบได้เฉพาะใบที่ยังรอพิจารณา)
+// ส่งความเห็น บันทึกลง Firestore จริงในโฟลเดอร์ย่อย approvals ของใบนั้น
 // ─────────────────────────────────────────────────────────────
 
 import { db } from "./firebase-config.js";
-import { doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 var รหัสใบลา = ค่าจากURL("id");
 var กล่องใบลา = document.getElementById("กล่องใบลา");
@@ -55,8 +56,10 @@ function วาดใบลา() {
     return '<div class="field-row"><span class="k">' + r[0] + "</span><span>" + r[1] + "</span></div>";
   }).join("");
 
+  var เป็นรอพิจารณา = ใบ.status === "รอพิจารณา";
+
   // ปุ่มอนุมัติ / ไม่อนุมัติ ขึ้นเฉพาะใบที่ยังรอพิจารณา
-  if (ใบ.status === "รอพิจารณา") {
+  if (เป็นรอพิจารณา) {
     html +=
       '<div class="btn-row">' +
       '<button type="button" class="btn-ok" id="ปุ่มอนุมัติ">อนุมัติ</button>' +
@@ -66,23 +69,59 @@ function วาดใบลา() {
     html += '<p class="hint">ใบนี้พิจารณาแล้ว จึงเปลี่ยนสถานะต่อไม่ได้</p>';
   }
 
+  // ปุ่มลบ — กดได้เฉพาะใบที่ยังรอพิจารณาเท่านั้น
+  html +=
+    '<div class="btn-row">' +
+    '<button type="button" class="btn-danger" id="ปุ่มลบ"' + (เป็นรอพิจารณา ? "" : " disabled") + ">ลบใบลานี้</button>" +
+    "</div>";
+
   กล่องใบลา.innerHTML = html;
 
-  if (ใบ.status === "รอพิจารณา") {
+  if (เป็นรอพิจารณา) {
     document.getElementById("ปุ่มอนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("อนุมัติ"); });
     document.getElementById("ปุ่มไม่อนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("ไม่อนุมัติ"); });
   }
+  document.getElementById("ปุ่มลบ").addEventListener("click", ลบใบลา);
 }
 
-// ── เปลี่ยนสถานะ (ตอนนี้เปลี่ยนแค่ในหน่วยความจำ ยังไม่บันทึกลง Firestore) ──
-function เปลี่ยนสถานะ(สถานะใหม่) {
+// ── เปลี่ยนสถานะ — บันทึกลง Firestore จริง แก้เฉพาะช่อง status ช่องเดียว ──
+async function เปลี่ยนสถานะ(สถานะใหม่) {
   // กฎ: จะไม่อนุมัติได้ ต้องมีความเห็นอย่างน้อย 1 รายการก่อน
   if (สถานะใหม่ === "ไม่อนุมัติ" && ความเห็น.length === 0) {
     alert("ต้องเขียนความเห็นอย่างน้อย 1 รายการก่อน จึงจะกดไม่อนุมัติได้");
     return;
   }
-  ใบ.status = สถานะใหม่;   // แก้เฉพาะช่อง status เท่านั้น
-  วาดใบลา();
+
+  var ปุ่มอนุมัติ = document.getElementById("ปุ่มอนุมัติ");
+  var ปุ่มไม่อนุมัติ = document.getElementById("ปุ่มไม่อนุมัติ");
+  ปุ่มอนุมัติ.disabled = true;
+  ปุ่มไม่อนุมัติ.disabled = true;
+
+  try {
+    await updateDoc(doc(db, "leaveRequests", รหัสใบลา), { status: สถานะใหม่ });
+    ใบ.status = สถานะใหม่;
+    วาดใบลา();
+  } catch (err) {
+    alert("บันทึกสถานะไม่สำเร็จ: " + err.message);
+    ปุ่มอนุมัติ.disabled = false;
+    ปุ่มไม่อนุมัติ.disabled = false;
+  }
+}
+
+// ── ลบใบลา — ถามยืนยันก่อนเสมอ กดยกเลิกแล้วต้องไม่ลบ ──
+async function ลบใบลา() {
+  if (!confirm('ยืนยันการลบใบลา "' + ใบ.title + '" หรือไม่ — ลบแล้วกู้คืนไม่ได้')) return;
+
+  var ปุ่ม = document.getElementById("ปุ่มลบ");
+  ปุ่ม.disabled = true;
+
+  try {
+    await deleteDoc(doc(db, "leaveRequests", รหัสใบลา));
+    location.href = "leave-requests.html";
+  } catch (err) {
+    alert("ลบไม่สำเร็จ: " + err.message);
+    ปุ่ม.disabled = false;
+  }
 }
 
 // ── รายการความเห็น เรียงจากเก่าไปใหม่ ──
@@ -101,10 +140,11 @@ function วาดความเห็น() {
     }).join("");
 }
 
-// ── ส่งความเห็นใหม่ (ตอนนี้เปลี่ยนแค่ในหน่วยความจำ ยังไม่บันทึกลง Firestore) ──
-function ส่งความเห็น() {
+// ── ส่งความเห็นใหม่ — บันทึกลง Firestore จริงในโฟลเดอร์ย่อย approvals ──
+async function ส่งความเห็น() {
   var ช่อง = document.getElementById("ข้อความความเห็น");
   var เตือน = document.getElementById("เตือนความเห็น");
+  var ปุ่ม = document.getElementById("ปุ่มส่งความเห็น");
   var ข้อความ = ช่อง.value.trim();
 
   if (!ข้อความ) {
@@ -113,15 +153,24 @@ function ส่งความเห็น() {
     return;
   }
   เตือน.classList.add("hidden");
+  ปุ่ม.disabled = true;
 
   // สัปดาห์ที่ 7 ยังไม่มีล็อกอิน จึงสมมติว่าผู้เขียนคือ สมหญิง รักงาน
-  ความเห็น.push({
-    id: "ap-ใหม่-" + Date.now(),
-    requestId: ใบ.id,
+  var ความเห็นใหม่ = {
     authorId: "u002", authorName: "สมหญิง รักงาน",
     message: ข้อความ,
     createdAt: เวลาตอนนี้()
-  });
-  ช่อง.value = "";
-  วาดความเห็น();
+  };
+
+  try {
+    var เอกสารใหม่ = await addDoc(collection(db, "leaveRequests", รหัสใบลา, "approvals"), ความเห็นใหม่);
+    ความเห็น.push(Object.assign({ id: เอกสารใหม่.id }, ความเห็นใหม่));
+    ช่อง.value = "";
+    วาดความเห็น();
+  } catch (err) {
+    เตือน.textContent = "⚠️ ส่งความเห็นไม่สำเร็จ: " + err.message;
+    เตือน.classList.remove("hidden");
+  } finally {
+    ปุ่ม.disabled = false;
+  }
 }
