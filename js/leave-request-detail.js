@@ -6,8 +6,12 @@
 // ส่งความเห็น บันทึกลง Firestore จริงในโฟลเดอร์ย่อย approvals ของใบนั้น
 // ─────────────────────────────────────────────────────────────
 
-import { db } from "./firebase-config.js";
+import { db, auth } from "./firebase-config.js";
 import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+
+var ผู้ใช้ปัจจุบัน = null;
+onAuthStateChanged(auth, function (ผู้ใช้) { ผู้ใช้ปัจจุบัน = ผู้ใช้; });
 
 var รหัสใบลา = ค่าจากURL("id");
 var กล่องใบลา = document.getElementById("กล่องใบลา");
@@ -152,12 +156,17 @@ async function ส่งความเห็น() {
     เตือน.classList.remove("hidden");
     return;
   }
+  if (!ผู้ใช้ปัจจุบัน) {
+    เตือน.textContent = "⚠️ ยังไม่ได้เข้าสู่ระบบ — กรุณาเข้าสู่ระบบก่อนส่งความเห็น";
+    เตือน.classList.remove("hidden");
+    return;
+  }
   เตือน.classList.add("hidden");
   ปุ่ม.disabled = true;
 
-  // สัปดาห์ที่ 7 ยังไม่มีล็อกอิน จึงสมมติว่าผู้เขียนคือ สมหญิง รักงาน
   var ความเห็นใหม่ = {
-    authorId: "u002", authorName: "สมหญิง รักงาน",
+    authorId: ผู้ใช้ปัจจุบัน.uid,
+    authorName: ผู้ใช้ปัจจุบัน.displayName || ผู้ใช้ปัจจุบัน.email,
     message: ข้อความ,
     createdAt: เวลาตอนนี้()
   };
