@@ -4,12 +4,11 @@
 // ประเภทการลาในรายการเลื่อนลงก็อ่านจากโฟลเดอร์ leaveTypes จริงแล้ว
 // ─────────────────────────────────────────────────────────────
 
-import { db, auth } from "./firebase-config.js";
+import { db } from "./firebase-config.js";
 import { collection, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import { getCurrentUser } from "./auth-helpers.js";
 
-var ผู้ใช้ปัจจุบัน = null;
-onAuthStateChanged(auth, function (ผู้ใช้) { ผู้ใช้ปัจจุบัน = ผู้ใช้; });
+var ผู้ใช้ = await getCurrentUser();
 
 var ฟอร์ม = document.getElementById("ฟอร์มใบลา");
 var ช่องประเภท = document.getElementById("leaveTypeId");
@@ -53,7 +52,7 @@ async function โหลดประเภทการลา() {
     เตือน("วันที่สิ้นสุดต้องไม่มาก่อนวันที่เริ่มลา");
     return;
   }
-  if (!ผู้ใช้ปัจจุบัน) {
+  if (!ผู้ใช้) {
     เตือน("ยังไม่ได้เข้าสู่ระบบ — กรุณาเข้าสู่ระบบก่อนยื่นใบลา");
     return;
   }
@@ -67,8 +66,8 @@ async function โหลดประเภทการลา() {
       title: ค่า.title,
       reason: ค่า.reason,
       status: "รอพิจารณา",                       // ใบใหม่เริ่มที่ รอพิจารณา เสมอ
-      requesterId: ผู้ใช้ปัจจุบัน.uid,
-      requesterName: ผู้ใช้ปัจจุบัน.displayName || ผู้ใช้ปัจจุบัน.email,
+      requesterId: ผู้ใช้.uid,
+      requesterName: ผู้ใช้.displayName,
       approverId: "",      approverName: "",
       leaveTypeId: ค่า.leaveTypeId, leaveTypeName: ชื่อประเภท,
       startDate: ค่า.startDate,

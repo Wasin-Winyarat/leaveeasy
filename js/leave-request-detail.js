@@ -4,32 +4,44 @@
 // ปุ่มอนุมัติ/ไม่อนุมัติ บันทึกลง Firestore จริง แก้เฉพาะช่อง status เท่านั้น
 // ปุ่มลบ ถามยืนยันก่อนเสมอ แล้วลบไฟล์จริงจาก Firestore (ลบได้เฉพาะใบที่ยังรอพิจารณา)
 // ส่งความเห็น บันทึกลง Firestore จริงในโฟลเดอร์ย่อย approvals ของใบนั้น
+//
+// สัปดาห์ที่ 8: จำกัดปุ่มตาม ACL.md (แค่ฝั่งหน้าจอ ยังไม่ใช่ Security Rules)
+// - employee เปิดดูใบลาของคนอื่นไม่ได้ — บล็อกทั้งหน้าถ้าไม่ใช่เจ้าของ
+// - อนุมัติ/ไม่อนุมัติ ทำได้เฉพาะ manager/hr และห้ามอนุมัติใบลาของตัวเอง
+// - ลบใบลาได้เฉพาะเจ้าของใบลาเท่านั้น (ไม่ใช่ตามบทบาท)
 // ─────────────────────────────────────────────────────────────
 
-import { db, auth } from "./firebase-config.js";
+import { db } from "./firebase-config.js";
 import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
-import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-
-var ผู้ใช้ปัจจุบัน = null;
-onAuthStateChanged(auth, function (ผู้ใช้) { ผู้ใช้ปัจจุบัน = ผู้ใช้; });
+import { getCurrentUser } from "./auth-helpers.js";
 
 var รหัสใบลา = ค่าจากURL("id");
 var กล่องใบลา = document.getElementById("กล่องใบลา");
 var กล่องความเห็น = document.getElementById("กล่องความเห็น");
 
-var ใบ, ความเห็น;
+var ผู้ใช้, ใบ, ความเห็น, เป็นเจ้าของ;
 
 โหลดข้อมูล();
 
 // ── อ่านใบลา 1 ใบ พร้อมความเห็นทั้งหมด จาก Firestore ──
 async function โหลดข้อมูล() {
   try {
+    ผู้ใช้ = await getCurrentUser();
+    if (!ผู้ใช้) return; // nav.js จะเด้งไปหน้า login ให้เอง
+
     var สแนปใบลา = await getDoc(doc(db, "leaveRequests", รหัสใบลา));
     if (!สแนปใบลา.exists()) {
       กล่องใบลา.innerHTML = "<p>ไม่พบใบขอลาที่ต้องการ — อาจถูกลบไปแล้ว หรือลิงก์ไม่ถูกต้อง</p>";
       return;
     }
     ใบ = Object.assign({ id: สแนปใบลา.id }, สแนปใบลา.data());
+    เป็นเจ้าของ = ผู้ใช้.uid === ใบ.requesterId;
+
+    // employee เปิดดูใบลาของคนอื่นไม่ได้ (ACL.md)
+    if (ผู้ใช้.role === "employee" && !เป็นเจ้าของ) {
+      กล่องใบลา.innerHTML = '<p class="hint">🔒 คุณไม่มีสิทธิ์ดูใบลานี้ — เปิดดูได้เฉพาะใบลาของตัวเอง</p>';
+      return;
+    }
 
     var สแนปความเห็น = await getDocs(collection(db, "leaveRequests", รหัสใบลา, "approvals"));
     ความเห็น = สแนปความเห็น.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
@@ -61,27 +73,31 @@ function วาดใบลา() {
   }).join("");
 
   var เป็นรอพิจารณา = ใบ.status === "รอพิจารณา";
+  var เป็นผู้อนุมัติหรือhr = ผู้ใช้.role === "manager" || ผู้ใช้.role === "hr";
 
-  // ปุ่มอนุมัติ / ไม่อนุมัติ ขึ้นเฉพาะใบที่ยังรอพิจารณา
-  if (เป็นรอพิจารณา) {
+  if (!เป็นรอพิจารณา) {
+    html += '<p class="hint">ใบนี้พิจารณาแล้ว จึงเปลี่ยนสถานะต่อไม่ได้</p>';
+  } else if (เป็นผู้อนุมัติหรือhr && เป็นเจ้าของ) {
+    html += '<p class="hint">🔒 อนุมัติใบลาของตัวเองไม่ได้ ต้องรอผู้อนุมัติคนอื่น</p>';
+  } else if (เป็นผู้อนุมัติหรือhr) {
     html +=
       '<div class="btn-row">' +
       '<button type="button" class="btn-ok" id="ปุ่มอนุมัติ">อนุมัติ</button>' +
       '<button type="button" class="btn-danger" id="ปุ่มไม่อนุมัติ">ไม่อนุมัติ</button>' +
       "</div>";
   } else {
-    html += '<p class="hint">ใบนี้พิจารณาแล้ว จึงเปลี่ยนสถานะต่อไม่ได้</p>';
+    html += '<p class="hint">ใบนี้ยังรอผู้อนุมัติพิจารณา</p>';
   }
 
-  // ปุ่มลบ — กดได้เฉพาะใบที่ยังรอพิจารณาเท่านั้น
+  // ปุ่มลบ — กดได้เฉพาะเจ้าของใบลาเท่านั้น และเฉพาะตอนยังรอพิจารณา
   html +=
     '<div class="btn-row">' +
-    '<button type="button" class="btn-danger" id="ปุ่มลบ"' + (เป็นรอพิจารณา ? "" : " disabled") + ">ลบใบลานี้</button>" +
+    '<button type="button" class="btn-danger" id="ปุ่มลบ"' + (เป็นรอพิจารณา && เป็นเจ้าของ ? "" : " disabled") + ">ลบใบลานี้</button>" +
     "</div>";
 
   กล่องใบลา.innerHTML = html;
 
-  if (เป็นรอพิจารณา) {
+  if (เป็นรอพิจารณา && เป็นผู้อนุมัติหรือhr && !เป็นเจ้าของ) {
     document.getElementById("ปุ่มอนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("อนุมัติ"); });
     document.getElementById("ปุ่มไม่อนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("ไม่อนุมัติ"); });
   }
@@ -156,17 +172,12 @@ async function ส่งความเห็น() {
     เตือน.classList.remove("hidden");
     return;
   }
-  if (!ผู้ใช้ปัจจุบัน) {
-    เตือน.textContent = "⚠️ ยังไม่ได้เข้าสู่ระบบ — กรุณาเข้าสู่ระบบก่อนส่งความเห็น";
-    เตือน.classList.remove("hidden");
-    return;
-  }
   เตือน.classList.add("hidden");
   ปุ่ม.disabled = true;
 
   var ความเห็นใหม่ = {
-    authorId: ผู้ใช้ปัจจุบัน.uid,
-    authorName: ผู้ใช้ปัจจุบัน.displayName || ผู้ใช้ปัจจุบัน.email,
+    authorId: ผู้ใช้.uid,
+    authorName: ผู้ใช้.displayName,
     message: ข้อความ,
     createdAt: เวลาตอนนี้()
   };

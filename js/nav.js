@@ -7,10 +7,12 @@
 // สัปดาห์ที่ 7: เช็คสถานะล็อกอินด้วย Firebase Authentication
 // ยังไม่ล็อกอินและไม่ได้อยู่หน้า login/signup → เด้งไปหน้าเข้าสู่ระบบทันที
 // ล็อกอินอยู่ → แสดงชื่อ + ปุ่มออกจากระบบ ในช่อง #navUser
+// สัปดาห์ที่ 8: ซ่อนเมนู "ประเภทการลา" ถ้าไม่ใช่ฝ่ายบุคคล (hr) ตาม ACL.md
 // ─────────────────────────────────────────────────────────────
 
 import { auth } from "./firebase-config.js";
-import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import { signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import { getCurrentUser } from "./auth-helpers.js";
 
 var เมนู = [
   { href: "index.html",             ชื่อ: "หน้าแรก" },
@@ -35,32 +37,36 @@ html += '<span class="nav-user" id="navUser"></span></div>';
 var ที่วาง = document.getElementById("nav");
 if (ที่วาง) ที่วาง.innerHTML = html;
 
-onAuthStateChanged(auth, function (ผู้ใช้) {
-  if (!ผู้ใช้) {
-    if (หน้าไม่ต้องล็อกอิน.indexOf(หน้าปัจจุบัน) === -1) {
-      location.href = "login.html";
-    }
-    return;
+var ผู้ใช้ = await getCurrentUser();
+
+if (!ผู้ใช้) {
+  if (หน้าไม่ต้องล็อกอิน.indexOf(หน้าปัจจุบัน) === -1) {
+    location.href = "login.html";
+  }
+} else {
+  if (ผู้ใช้.role !== "hr") {
+    var ลิงก์ประเภทการลา = document.querySelector('a[href="leave-types.html"]');
+    if (ลิงก์ประเภทการลา) ลิงก์ประเภทการลา.remove();
   }
 
   var navUser = document.getElementById("navUser");
-  if (!navUser) return;
+  if (navUser) {
+    navUser.innerHTML = "";
 
-  navUser.innerHTML = "";
+    var ชื่อ = document.createElement("span");
+    ชื่อ.textContent = ผู้ใช้.displayName;
+    navUser.appendChild(ชื่อ);
 
-  var ชื่อ = document.createElement("span");
-  ชื่อ.textContent = ผู้ใช้.displayName || ผู้ใช้.email;
-  navUser.appendChild(ชื่อ);
-
-  var ปุ่มออกจากระบบ = document.createElement("button");
-  ปุ่มออกจากระบบ.type = "button";
-  ปุ่มออกจากระบบ.className = "btn-ghost";
-  ปุ่มออกจากระบบ.textContent = "ออกจากระบบ";
-  ปุ่มออกจากระบบ.addEventListener("click", function () {
-    signOut(auth).then(function () { location.href = "login.html"; });
-  });
-  navUser.appendChild(ปุ่มออกจากระบบ);
-});
+    var ปุ่มออกจากระบบ = document.createElement("button");
+    ปุ่มออกจากระบบ.type = "button";
+    ปุ่มออกจากระบบ.className = "btn-ghost";
+    ปุ่มออกจากระบบ.textContent = "ออกจากระบบ";
+    ปุ่มออกจากระบบ.addEventListener("click", function () {
+      signOut(auth).then(function () { location.href = "login.html"; });
+    });
+    navUser.appendChild(ปุ่มออกจากระบบ);
+  }
+}
 
 // แถบเตือนสีเหลือง ใช้ตอนที่ยังไม่ได้ตั้งค่า Firebase
 function showConfigWarning(ข้อความ) {
