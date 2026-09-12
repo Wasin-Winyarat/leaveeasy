@@ -53,7 +53,9 @@ leaveTypes/{id}         { name }
 leaveRequests/{id}      { title, reason, status, startDate, endDate, createdAt,
                           requesterId, requesterName,   ← denormalized name alongside every FK
                           approverId,  approverName,
-                          leaveTypeId, leaveTypeName }
+                          leaveTypeId, leaveTypeName,
+                          aiSuggestion, aiSuggestionAt } ← not in the original ERD (spec §5.1); added for the
+                                                            "AI summary for the approver" week-8 feature
   leaveRequests/{id}/approvals/{id}   { authorId, authorName, message, createdAt }  (subcollection)
 ```
 Every foreign key (`requesterId`, `approverId`, `leaveTypeId`, `authorId`) is stored alongside a denormalized `*Name` field, because Firestore has no JOIN — always keep both in sync when writing.

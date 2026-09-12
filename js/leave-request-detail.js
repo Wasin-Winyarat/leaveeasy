@@ -14,6 +14,7 @@
 import { db } from "./firebase-config.js";
 import { doc, getDoc, updateDoc, deleteDoc, collection, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { getCurrentUser } from "./auth-helpers.js";
+import { OPENROUTER_API_KEY, OPENROUTER_MODEL } from "./config.js";
 
 var รหัสใบลา = ค่าจากURL("id");
 var กล่องใบลา = document.getElementById("กล่องใบลา");
@@ -75,6 +76,14 @@ function วาดใบลา() {
   var เป็นรอพิจารณา = ใบ.status === "รอพิจารณา";
   var เป็นผู้อนุมัติหรือhr = ผู้ใช้.role === "manager" || ผู้ใช้.role === "hr";
 
+  // ปุ่มให้ AI ช่วยสรุปใบลา — เฉพาะผู้อนุมัติ/ฝ่ายบุคคล เพื่อช่วยอ่านก่อนกดอนุมัติ
+  if (เป็นผู้อนุมัติหรือhr) {
+    html +=
+      '<div class="btn-row"><button type="button" id="ปุ่มสรุปAI">ให้ AI ช่วยสรุปใบลา</button></div>' +
+      '<div id="ผลสรุปAI" class="alert alert-ai' + (ใบ.aiSuggestion ? "" : " hidden") + '">' +
+      (ใบ.aiSuggestion ? esc(ใบ.aiSuggestion) : "") + "</div>";
+  }
+
   if (!เป็นรอพิจารณา) {
     html += '<p class="hint">ใบนี้พิจารณาแล้ว จึงเปลี่ยนสถานะต่อไม่ได้</p>';
   } else if (เป็นผู้อนุมัติหรือhr && เป็นเจ้าของ) {
@@ -101,7 +110,72 @@ function วาดใบลา() {
     document.getElementById("ปุ่มอนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("อนุมัติ"); });
     document.getElementById("ปุ่มไม่อนุมัติ").addEventListener("click", function () { เปลี่ยนสถานะ("ไม่อนุมัติ"); });
   }
+  if (เป็นผู้อนุมัติหรือhr) {
+    document.getElementById("ปุ่มสรุปAI").addEventListener("click", สรุปด้วยAI);
+  }
   document.getElementById("ปุ่มลบ").addEventListener("click", ลบใบลา);
+}
+
+// ── ให้ AI สรุปใบลาสั้น ๆ ให้หัวหน้าอ่านก่อนอนุมัติ แล้วเขียนสรุปกลับลง Firestore ──
+async function สรุปด้วยAI() {
+  var ปุ่ม = document.getElementById("ปุ่มสรุปAI");
+  var กล่องผล = document.getElementById("ผลสรุปAI");
+  var ข้อความปุ่มปกติ = ปุ่ม.textContent;
+
+  ปุ่ม.disabled = true;
+  ปุ่ม.textContent = "กำลังให้ AI สรุป...";
+
+  var คำสั่ง = "คุณคือผู้ช่วยสรุปใบลาให้หัวหน้าอ่านก่อนตัดสินใจอนุมัติ " +
+    "เขียนสรุปสั้น ๆ ภาษาไทย 2-3 ประโยค จากข้อมูลใบลานี้ ห้ามเดาข้อมูลที่ไม่ได้ให้มา:\n\n" +
+    "หัวข้อ: " + ใบ.title + "\n" +
+    "ประเภทการลา: " + ใบ.leaveTypeName + "\n" +
+    "เหตุผล: " + ใบ.reason + "\n" +
+    "ผู้ขอลา: " + ใบ.requesterName + "\n" +
+    "วันที่ลา: " + ใบ.startDate + " ถึง " + ใบ.endDate + "\n" +
+    "สถานะปัจจุบัน: " + ใบ.status;
+
+  var ตัวควบคุม = new AbortController();
+  var ตัวจับเวลา = setTimeout(function () { ตัวควบคุม.abort(); }, 15000);
+
+  try {
+    var res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal: ตัวควบคุม.signal,
+      headers: {
+        "Authorization": "Bearer " + OPENROUTER_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages: [{ role: "user", content: คำสั่ง }]
+      })
+    });
+
+    var ข้อมูล = await res.json();
+    if (!res.ok) {
+      throw new Error(ข้อมูล.error?.message || "เรียก API ไม่สำเร็จ (" + res.status + ")");
+    }
+
+    var สรุป = (ข้อมูล.choices?.[0]?.message?.content || "").trim();
+    if (!สรุป) throw new Error("AI ไม่ได้ตอบข้อความสรุปกลับมา");
+
+    var เวลา = เวลาตอนนี้();
+    await updateDoc(doc(db, "leaveRequests", รหัสใบลา), { aiSuggestion: สรุป, aiSuggestionAt: เวลา });
+    ใบ.aiSuggestion = สรุป;
+    ใบ.aiSuggestionAt = เวลา;
+
+    กล่องผล.textContent = สรุป;
+    กล่องผล.classList.remove("hidden", "alert-error");
+    กล่องผล.classList.add("alert-ai");
+  } catch (err) {
+    กล่องผล.textContent = "AI สรุปใบลาไม่สำเร็จ ลองใหม่อีกครั้ง";
+    กล่องผล.classList.remove("hidden", "alert-ai");
+    กล่องผล.classList.add("alert-error");
+  } finally {
+    clearTimeout(ตัวจับเวลา);
+    ปุ่ม.disabled = false;
+    ปุ่ม.textContent = ข้อความปุ่มปกติ;
+  }
 }
 
 // ── เปลี่ยนสถานะ — บันทึกลง Firestore จริง แก้เฉพาะช่อง status ช่องเดียว ──
